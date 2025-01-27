@@ -48,3 +48,14 @@ export default tseslint.config({
   },
 })
 ```
+
+
+## Presenta da dove posso rimuovere i permessi 
+
+![](20250124154432.png)
+
+
+Studia il giro di test. 
+
++ File System API use case - Normalmente l'utente ha bisogno di lavorare con i file
++ OPFS Use case

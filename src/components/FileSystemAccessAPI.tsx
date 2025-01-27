@@ -1,4 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import Modal from "./Modal";
+import { openDB } from "idb";
 
 type FileSystemNode = {
   name: string;
@@ -13,6 +15,54 @@ const FileSystemAccessAPI: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<FileSystemNode | null>(null);
   const [fileContent, setFileContent] = useState<string>("");
   const [message, setMessage] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState<{
+    action: "createFile" | "createFolder" | "openFile" | null;
+    placeholder: string;
+    title: string;
+  } | null>(null);
+
+  const DB_NAME = "fileSystemDB";
+  const STORE_NAME = "handles";
+
+  useEffect(() => {
+    const loadDirectoryHandle = async () => {
+      const db = await openDB(DB_NAME, 1, {
+        upgrade(db) {
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            db.createObjectStore(STORE_NAME);
+          }
+        },
+      });
+
+      const storedHandle = await db.get(STORE_NAME, "directoryHandle");
+      if (storedHandle) {
+        try {
+          const permission = await storedHandle.queryPermission();
+          if (permission === "granted") {
+            setDirectoryHandle(storedHandle);
+            const contents = await fetchDirectoryContents(storedHandle);
+            setFileSystem(contents);
+          }
+        } catch (error) {
+          console.error("Errore nel recupero del handle:", error);
+        }
+      }
+    };
+
+    loadDirectoryHandle();
+  }, []);
+
+  // Save the directory handle in IndexedDB
+  const saveDirectoryHandle = async (handle: FileSystemDirectoryHandle) => {
+    const db = await openDB(DB_NAME, 1, {
+      upgrade(db) {
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME);
+        }
+      },
+    });
+    await db.put(STORE_NAME, handle, "directoryHandle");
+  };
 
   // Traverse directory to get its contents
   const fetchDirectoryContents = async (
@@ -43,25 +93,23 @@ const FileSystemAccessAPI: React.FC = () => {
     try {
       const handle = await window.showDirectoryPicker();
       setDirectoryHandle(handle);
+      saveDirectoryHandle(handle);
       const contents = await fetchDirectoryContents(handle);
       setFileSystem(contents);
-      setMessage("Directory loaded successfully!");
+      setMessage("Cartella caricata con successo!");
     } catch (error: any) {
-      console.error("Error selecting directory:", error);
-      setMessage(`Error: ${error.message}`);
+      console.error("Errore nella selezione della cartella:", error);
+      setMessage(`Errore: ${error.message}`);
     }
   };
 
-  // Create a new file
-  const createFile = async (filePath: string) => {
-    if (!directoryHandle) {
-      setMessage("No directory selected.");
-      return;
-    }
+  // Create a new file or folder
+  const handleAction = async (input: string) => {
+    if (!directoryHandle || !modalOpen) return;
 
     try {
-      const pathParts = filePath.split("/");
-      const fileName = pathParts.pop()!;
+      const pathParts = input.split("/");
+      const name = pathParts.pop()!;
       let currentHandle = directoryHandle;
 
       for (const part of pathParts) {
@@ -70,47 +118,28 @@ const FileSystemAccessAPI: React.FC = () => {
         });
       }
 
-      await currentHandle.getFileHandle(fileName, { create: true });
-
-      const contents = await fetchDirectoryContents(directoryHandle);
-      setFileSystem(contents);
-      setMessage(`File created: ${filePath}`);
-    } catch (error: any) {
-      console.error("Error creating file:", error);
-      setMessage(`Error: ${error.message}`);
-    }
-  };
-
-  // Create a new directory
-  const createFolder = async (folderPath: string) => {
-    if (!directoryHandle) {
-      setMessage("No directory selected.");
-      return;
-    }
-
-    try {
-      const folders = folderPath.split("/");
-      let currentHandle = directoryHandle;
-
-      for (const folder of folders) {
-        currentHandle = await currentHandle.getDirectoryHandle(folder, {
-          create: true,
-        });
+      if (modalOpen.action === "createFile") {
+        await currentHandle.getFileHandle(name, { create: true });
+        setMessage(`File creato: ${input}`);
+      } else if (modalOpen.action === "createFolder") {
+        await currentHandle.getDirectoryHandle(name, { create: true });
+        setMessage(`Cartella creata: ${input}`);
       }
 
       const contents = await fetchDirectoryContents(directoryHandle);
       setFileSystem(contents);
-      setMessage(`Folder created: ${folderPath}`);
     } catch (error: any) {
-      console.error("Error creating folder:", error);
-      setMessage(`Error: ${error.message}`);
+      console.error("Errore durante l'azione:", error);
+      setMessage(`Errore: ${error.message}`);
+    } finally {
+      setModalOpen(null);
     }
   };
 
   // Open a file
   const openFile = async (filePath: string) => {
     if (!directoryHandle) {
-      setMessage("No directory selected.");
+      setMessage("Nessuna cartella selezionata.");
       return;
     }
 
@@ -129,17 +158,17 @@ const FileSystemAccessAPI: React.FC = () => {
 
       setSelectedFile({ name: filePath, kind: "file" });
       setFileContent(content);
-      setMessage(`Opened file: ${filePath}`);
+      setMessage(`File aperto: ${filePath}`);
     } catch (error: any) {
-      console.error("Error opening file:", error);
-      setMessage(`Error: ${error.message}`);
+      console.error("Errore nell'apertura del file:", error);
+      setMessage(`Errore: ${error.message}`);
     }
   };
 
   // Save changes to a file
   const saveFile = async () => {
     if (!selectedFile || selectedFile.kind !== "file" || !directoryHandle) {
-      setMessage("No file selected.");
+      setMessage("Nessun file selezionato.");
       return;
     }
 
@@ -156,17 +185,17 @@ const FileSystemAccessAPI: React.FC = () => {
       const writable = await fileHandle.createWritable();
       await writable.write(fileContent);
       await writable.close();
-      setMessage(`File saved: ${selectedFile.name}`);
+      setMessage(`File salvato: ${selectedFile.name}`);
     } catch (error: any) {
-      console.error("Error saving file:", error);
-      setMessage(`Error: ${error.message}`);
+      console.error("Errore nel salvataggio del file:", error);
+      setMessage(`Errore: ${error.message}`);
     }
   };
 
   // Delete a file or folder
   const deleteEntry = async (path: string, kind: "file" | "directory") => {
     if (!directoryHandle) {
-      setMessage("No directory selected.");
+      setMessage("Nessuna cartella selezionata.");
       return;
     }
 
@@ -186,11 +215,11 @@ const FileSystemAccessAPI: React.FC = () => {
       const contents = await fetchDirectoryContents(directoryHandle);
       setFileSystem(contents);
       setMessage(
-        `${kind === "directory" ? "Folder" : "File"} deleted: ${path}`
+        `${kind === "directory" ? "Cartella" : "File"} eliminato: ${path}`
       );
     } catch (error: any) {
-      console.error(`Error deleting ${kind}:`, error);
-      setMessage(`Error: ${error.message}`);
+      console.error(`Errore durante l'eliminazione di ${kind}:`, error);
+      setMessage(`Errore: ${error.message}`);
     }
   };
 
@@ -203,7 +232,7 @@ const FileSystemAccessAPI: React.FC = () => {
             📁 {node.name.split("/").pop()}{" "}
             {/* Display only the last part of the path */}
             <button onClick={() => deleteEntry(node.name, "directory")}>
-              Delete
+              Elimina
             </button>
             <ul>{node.children && renderTree(node.children)}</ul>
           </>
@@ -211,9 +240,9 @@ const FileSystemAccessAPI: React.FC = () => {
           <>
             📄 {node.name.split("/").pop()}{" "}
             {/* Display only the last part of the path */}
-            <button onClick={() => openFile(node.name)}>Open</button>
+            <button onClick={() => openFile(node.name)}>Apri</button>
             <button onClick={() => deleteEntry(node.name, "file")}>
-              Delete
+              Elimina
             </button>
           </>
         )}
@@ -224,47 +253,52 @@ const FileSystemAccessAPI: React.FC = () => {
   return (
     <div style={{ padding: "20px" }}>
       <h1>File System Access API</h1>
-      <button onClick={selectDirectory}>Select Directory</button>
+      <button onClick={selectDirectory}>Seleziona cartella</button>
       <button
         onClick={() =>
-          createFolder(
-            prompt("Enter folder path (e.g., folder1/folder2):") || ""
-          )
+          setModalOpen({
+            action: "createFolder",
+            title: "Crea una nuova cartella",
+            placeholder:
+              "Inserisci il percorso della cartella (es. folder1/folder2)",
+          })
         }
       >
-        Create Folder
+        Crea Cartella
       </button>
       <button
         onClick={() =>
-          createFile(
-            prompt("Enter file path (e.g., folder1/folder2/file.txt):") || ""
-          )
+          setModalOpen({
+            action: "createFile",
+            title: "Crea un nuovo file",
+            placeholder:
+              "Inserisci il percorso del file (es. folder1/folder2/file.txt)",
+          })
         }
       >
-        Create File
-      </button>
-      <button
-        onClick={() =>
-          openFile(
-            prompt("Enter file path (e.g., folder1/folder2/file.txt):") || ""
-          )
-        }
-      >
-        Open File
+        Crea File
       </button>
       {selectedFile && (
         <div>
-          <h2>Editing File: {selectedFile.name}</h2>
+          <h2>Modifica file: {selectedFile.name}</h2>
           <textarea
             value={fileContent}
             onChange={(e) => setFileContent(e.target.value)}
             style={{ width: "100%", height: "200px" }}
           />
-          <button onClick={saveFile}>Save File</button>
+          <button onClick={saveFile}>Salva File</button>
         </div>
       )}
       {message && <p>{message}</p>}
       <ul>{renderTree(fileSystem)}</ul>
+      {modalOpen && (
+        <Modal
+          title={modalOpen.title}
+          placeholder={modalOpen.placeholder}
+          onConfirm={handleAction}
+          onCancel={() => setModalOpen(null)}
+        />
+      )}
     </div>
   );
 };
