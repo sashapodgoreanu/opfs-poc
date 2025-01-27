@@ -7,7 +7,7 @@ const App: React.FC = () => {
 
   return (
     <div style={{ padding: "20px", fontFamily: "Arial, sans-serif" }}>
-      <h1>File System Explorer</h1>
+      <h1>File System Explorer Web App</h1>
       <div style={{ marginBottom: "20px" }}>
         <button
           onClick={() => setMode("opfs")}
@@ -21,7 +21,7 @@ const App: React.FC = () => {
             cursor: "pointer",
           }}
         >
-          Use OPFS
+          Origin Private File System
         </button>
         <button
           onClick={() => setMode("fsapi")}
@@ -34,7 +34,7 @@ const App: React.FC = () => {
             cursor: "pointer",
           }}
         >
-          Use File System API
+          File System Access API
         </button>
       </div>
 

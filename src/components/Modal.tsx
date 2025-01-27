@@ -3,17 +3,27 @@ import React, { useState } from "react";
 type ModalProps = {
   title: string;
   placeholder: string;
-  onConfirm: (input: string) => void;
+  fields: {
+    name: string;
+    type: "text" | "number" | "select";
+    placeholder?: string;
+    options?: string[]; // Only for select type
+  }[];
+  onConfirm: (input: { [key: string]: any }) => void;
   onCancel: () => void;
 };
 
 const Modal: React.FC<ModalProps> = ({
   title,
-  placeholder,
+  fields,
   onConfirm,
   onCancel,
 }) => {
-  const [input, setInput] = useState("");
+  const [formValues, setFormValues] = useState<{ [key: string]: any }>({});
+
+  const handleChange = (field: string, value: any) => {
+    setFormValues((prev) => ({ ...prev, [field]: value }));
+  };
 
   return (
     <div
@@ -31,7 +41,7 @@ const Modal: React.FC<ModalProps> = ({
     >
       <div
         style={{
-          backgroundColor: "white",
+          backgroundColor: "rgb(26, 27, 25)",
           padding: "20px",
           borderRadius: "8px",
           width: "300px",
@@ -39,22 +49,56 @@ const Modal: React.FC<ModalProps> = ({
         }}
       >
         <h3 style={{ marginBottom: "10px" }}>{title}</h3>
-        <input
-          type="text"
-          placeholder={placeholder}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
+
+        {fields.map((field) => (
+          <div key={field.name} style={{ marginBottom: "10px" }}>
+            <label>{field.name}:</label>
+            {field.type === "select" ? (
+              <select
+                value={formValues[field.name] || ""}
+                onChange={(e) => handleChange(field.name, e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "8px",
+                  marginTop: "5px",
+                  border: "1px solid #ccc",
+                  borderRadius: "4px",
+                }}
+              >
+                <option value="">Seleziona un'opzione</option>
+                {field.options?.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type={field.type}
+                placeholder={field.placeholder}
+                value={formValues[field.name] || ""}
+                onChange={(e) => handleChange(field.name, e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "8px",
+                  marginTop: "5px",
+                  border: "1px solid #ccc",
+                  borderRadius: "4px",
+                }}
+              />
+            )}
+          </div>
+        ))}
+
+        <div
           style={{
-            width: "100%",
-            padding: "8px",
-            marginBottom: "10px",
-            border: "1px solid #ccc",
-            borderRadius: "4px",
+            display: "flex",
+            justifyContent: "space-between",
+            marginTop: "15px",
           }}
-        />
-        <div style={{ display: "flex", justifyContent: "space-between" }}>
+        >
           <button
-            onClick={() => onConfirm(input)}
+            onClick={() => onConfirm(formValues)}
             style={{
               backgroundColor: "#4CAF50",
               color: "white",
@@ -64,7 +108,7 @@ const Modal: React.FC<ModalProps> = ({
               cursor: "pointer",
             }}
           >
-            Confirm
+            Conferma
           </button>
           <button
             onClick={onCancel}
@@ -77,7 +121,7 @@ const Modal: React.FC<ModalProps> = ({
               cursor: "pointer",
             }}
           >
-            Cancel
+            Annulla
           </button>
         </div>
       </div>

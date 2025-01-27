@@ -16,10 +16,11 @@ const FileSystemAccessAPI: React.FC = () => {
   const [fileContent, setFileContent] = useState<string>("");
   const [message, setMessage] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState<{
-    action: "createFile" | "createFolder" | "openFile" | null;
-    placeholder: string;
+    action: "createFile" | "createFolder";
     title: string;
+    placeholder: string;
   } | null>(null);
+  const [modalInput, setModalInput] = useState<string>("");
 
   const DB_NAME = "fileSystemDB";
   const STORE_NAME = "handles";
@@ -52,7 +53,6 @@ const FileSystemAccessAPI: React.FC = () => {
     loadDirectoryHandle();
   }, []);
 
-  // Save the directory handle in IndexedDB
   const saveDirectoryHandle = async (handle: FileSystemDirectoryHandle) => {
     const db = await openDB(DB_NAME, 1, {
       upgrade(db) {
@@ -64,14 +64,13 @@ const FileSystemAccessAPI: React.FC = () => {
     await db.put(STORE_NAME, handle, "directoryHandle");
   };
 
-  // Traverse directory to get its contents
   const fetchDirectoryContents = async (
     directoryHandle: FileSystemDirectoryHandle,
     parentPath: string = ""
   ): Promise<FileSystemNode[]> => {
     const nodes: FileSystemNode[] = [];
     for await (const [name, handle] of directoryHandle.entries()) {
-      const fullPath = parentPath ? `${parentPath}/${name}` : name; // Build the full path
+      const fullPath = parentPath ? `${parentPath}/${name}` : name;
       if (handle.kind === "directory") {
         nodes.push({
           name: fullPath,
@@ -88,7 +87,6 @@ const FileSystemAccessAPI: React.FC = () => {
     return nodes;
   };
 
-  // Allow the user to select a directory
   const selectDirectory = async () => {
     try {
       const handle = await window.showDirectoryPicker();
@@ -103,29 +101,32 @@ const FileSystemAccessAPI: React.FC = () => {
     }
   };
 
-  // Create a new file or folder
-  const handleAction = async (input: string) => {
+  const handleAction = async (formValues: { [key: string]: any }) => {
     if (!directoryHandle || !modalOpen) return;
 
     try {
-      const pathParts = input.split("/");
+      const modalInput = formValues["Percorso"]; // Recupera il valore del campo "Percorso" dal form
+      const pathParts = modalInput.split("/");
       const name = pathParts.pop()!;
       let currentHandle = directoryHandle;
 
+      // Naviga nella struttura delle directory, creando directory intermedie se necessario
       for (const part of pathParts) {
         currentHandle = await currentHandle.getDirectoryHandle(part, {
           create: true,
         });
       }
 
+      // Crea file o cartella a seconda dell'azione selezionata
       if (modalOpen.action === "createFile") {
         await currentHandle.getFileHandle(name, { create: true });
-        setMessage(`File creato: ${input}`);
+        setMessage(`File creato: ${modalInput}`);
       } else if (modalOpen.action === "createFolder") {
         await currentHandle.getDirectoryHandle(name, { create: true });
-        setMessage(`Cartella creata: ${input}`);
+        setMessage(`Cartella creata: ${modalInput}`);
       }
 
+      // Aggiorna il file system per riflettere i cambiamenti
       const contents = await fetchDirectoryContents(directoryHandle);
       setFileSystem(contents);
     } catch (error: any) {
@@ -136,7 +137,6 @@ const FileSystemAccessAPI: React.FC = () => {
     }
   };
 
-  // Open a file
   const openFile = async (filePath: string) => {
     if (!directoryHandle) {
       setMessage("Nessuna cartella selezionata.");
@@ -165,7 +165,6 @@ const FileSystemAccessAPI: React.FC = () => {
     }
   };
 
-  // Save changes to a file
   const saveFile = async () => {
     if (!selectedFile || selectedFile.kind !== "file" || !directoryHandle) {
       setMessage("Nessun file selezionato.");
@@ -192,7 +191,6 @@ const FileSystemAccessAPI: React.FC = () => {
     }
   };
 
-  // Delete a file or folder
   const deleteEntry = async (path: string, kind: "file" | "directory") => {
     if (!directoryHandle) {
       setMessage("Nessuna cartella selezionata.");
@@ -223,14 +221,12 @@ const FileSystemAccessAPI: React.FC = () => {
     }
   };
 
-  // Render the file system tree
   const renderTree = (nodes: FileSystemNode[]) => {
     return nodes.map((node) => (
       <li key={node.name}>
         {node.kind === "directory" ? (
           <>
             📁 {node.name.split("/").pop()}{" "}
-            {/* Display only the last part of the path */}
             <button onClick={() => deleteEntry(node.name, "directory")}>
               Elimina
             </button>
@@ -239,7 +235,6 @@ const FileSystemAccessAPI: React.FC = () => {
         ) : (
           <>
             📄 {node.name.split("/").pop()}{" "}
-            {/* Display only the last part of the path */}
             <button onClick={() => openFile(node.name)}>Apri</button>
             <button onClick={() => deleteEntry(node.name, "file")}>
               Elimina
@@ -294,9 +289,17 @@ const FileSystemAccessAPI: React.FC = () => {
       {modalOpen && (
         <Modal
           title={modalOpen.title}
-          placeholder={modalOpen.placeholder}
-          onConfirm={handleAction}
-          onCancel={() => setModalOpen(null)}
+          fields={[
+            {
+              name: "Percorso", // Nome del campo
+              type: "text", // Tipo di input
+              placeholder: modalOpen.placeholder, // Placeholder dinamico
+            },
+          ]}
+          onConfirm={handleAction} // Passa la funzione handleAction
+          onCancel={() => {
+            setModalOpen(null); // Chiude il modal al click su "Annulla"
+          }}
         />
       )}
     </div>
