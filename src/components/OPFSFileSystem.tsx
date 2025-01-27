@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import Modal from "./Modal";
 
 type FileSystemNode = {
   name: string;
@@ -11,6 +12,11 @@ const OPFSFileSystem: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<FileSystemNode | null>(null);
   const [fileContent, setFileContent] = useState<string>("");
   const [message, setMessage] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState<{
+    action: "createFile" | "createFolder";
+    placeholder: string;
+    title: string;
+  } | null>(null);
 
   // Fetch directory contents recursively
   const fetchDirectoryContents = async (
@@ -44,10 +50,10 @@ const OPFSFileSystem: React.FC = () => {
       setFileSystem([
         { name: "Root", kind: "directory", children: rootContent },
       ]);
-      setMessage("File system loaded successfully!");
+      setMessage("File system caricato con successo!");
     } catch (error: any) {
-      console.error("Error loading file system:", error);
-      setMessage(`Error: ${error.message}`);
+      console.error("Errore durante il caricamento del file system:", error);
+      setMessage(`Errore: ${error.message}`);
     }
   };
 
@@ -55,71 +61,43 @@ const OPFSFileSystem: React.FC = () => {
     loadFileSystem();
   }, []);
 
-  // Create a new file
-  const createFile = async (fileName: string) => {
+  // Handle actions from modal
+  const handleModalAction = async (input: string) => {
+    if (!modalOpen) return;
+
     try {
       const rootHandle = await navigator.storage.getDirectory();
-      await rootHandle.getFileHandle(fileName, { create: true });
-      loadFileSystem(); // Refresh the file system
-      setMessage(`File created: ${fileName}`);
-    } catch (error: any) {
-      console.error("Error creating file:", error);
-      setMessage(`Error: ${error.message}`);
-    }
-  };
 
-  // Create a new folder
-  const createFolder = async (folderName: string) => {
-    try {
-      const rootHandle = await navigator.storage.getDirectory();
-      await rootHandle.getDirectoryHandle(folderName, { create: true });
-      loadFileSystem(); // Refresh the file system
-      setMessage(`Folder created: ${folderName}`);
-    } catch (error: any) {
-      console.error("Error creating folder:", error);
-      setMessage(`Error: ${error.message}`);
-    }
-  };
+      if (modalOpen.action === "createFolder") {
+        const folders = input.split("/");
+        let currentHandle = rootHandle;
 
-  const createNestedFolder = async (folderPath: string) => {
-    try {
-      const rootHandle = await navigator.storage.getDirectory();
-      const folders = folderPath.split("/");
-      let currentHandle = rootHandle;
+        for (const folder of folders) {
+          currentHandle = await currentHandle.getDirectoryHandle(folder, {
+            create: true,
+          });
+        }
+        setMessage(`Cartella creata: ${input}`);
+      } else if (modalOpen.action === "createFile") {
+        const pathParts = input.split("/");
+        const fileName = pathParts.pop()!;
+        let currentHandle = rootHandle;
 
-      for (const folder of folders) {
-        currentHandle = await currentHandle.getDirectoryHandle(folder, {
-          create: true,
-        });
+        for (const part of pathParts) {
+          currentHandle = await currentHandle.getDirectoryHandle(part, {
+            create: true,
+          });
+        }
+        await currentHandle.getFileHandle(fileName, { create: true });
+        setMessage(`File creato: ${input}`);
       }
 
-      setMessage(`Folder created: ${folderPath}`);
       loadFileSystem(); // Refresh the file system
     } catch (error: any) {
-      console.error("Error creating nested folder:", error);
-      setMessage(`Error: ${error.message}`);
-    }
-  };
-
-  const createFileInFolder = async (filePath: string) => {
-    try {
-      const rootHandle = await navigator.storage.getDirectory();
-      const pathParts = filePath.split("/");
-      const fileName = pathParts.pop()!;
-      let currentHandle = rootHandle;
-
-      for (const part of pathParts) {
-        currentHandle = await currentHandle.getDirectoryHandle(part, {
-          create: true,
-        });
-      }
-
-      await currentHandle.getFileHandle(fileName, { create: true });
-      setMessage(`File created: ${filePath}`);
-      loadFileSystem(); // Refresh the file system
-    } catch (error: any) {
-      console.error("Error creating file in folder:", error);
-      setMessage(`Error: ${error.message}`);
+      console.error("Errore durante la creazione di file o cartella:", error);
+      setMessage(`Errore: ${error.message}`);
+    } finally {
+      setModalOpen(null);
     }
   };
 
@@ -143,10 +121,10 @@ const OPFSFileSystem: React.FC = () => {
       // Update the selected file and content
       setSelectedFile({ name: filePath, kind: "file" });
       setFileContent(content);
-      setMessage(`Loaded file: ${filePath}`);
+      setMessage(`File caricato: ${filePath}`);
     } catch (error: any) {
-      console.error("Error loading file:", error);
-      setMessage(`Error: ${error.message}`);
+      console.error("Errore durante il caricamento del file:", error);
+      setMessage(`Errore: ${error.message}`);
     }
   };
 
@@ -154,27 +132,36 @@ const OPFSFileSystem: React.FC = () => {
     if (!selectedFile || selectedFile.kind !== "file") return;
     try {
       const rootHandle = await navigator.storage.getDirectory();
-      const fileHandle = await rootHandle.getFileHandle(selectedFile.name, {
+      const pathParts = selectedFile.name.split("/"); // Use the full path
+      const fileName = pathParts.pop()!; // Extract the file name
+      let currentHandle = rootHandle;
+
+      // Traverse through the directories
+      for (const part of pathParts) {
+        currentHandle = await currentHandle.getDirectoryHandle(part);
+      }
+
+      const fileHandle = await currentHandle.getFileHandle(fileName, {
         create: true,
       });
       const writable = await fileHandle.createWritable();
       await writable.write(fileContent);
       await writable.close();
-      setMessage(`File saved: ${selectedFile.name}`);
+      setMessage(`File salvato: ${selectedFile.name}`);
     } catch (error: any) {
-      console.error("Error saving file:", error);
-      setMessage(`Error: ${error.message}`);
+      console.error("Errore durante il salvataggio del file:", error);
+      setMessage(`Errore: ${error.message}`);
     }
   };
 
   const handleDelete = async (filePath: string, kind: "file" | "directory") => {
     try {
       const rootHandle = await navigator.storage.getDirectory();
-      const pathParts = filePath.split("/"); // Split the full path into parts
+      const pathParts = filePath.split("/"); // Use the full path
       const itemName = pathParts.pop()!; // Extract the name of the file or folder
       let currentHandle = rootHandle;
 
-      // Traverse to the parent directory
+      // Traverse through the directories
       for (const part of pathParts) {
         currentHandle = await currentHandle.getDirectoryHandle(part);
       }
@@ -185,11 +172,11 @@ const OPFSFileSystem: React.FC = () => {
       });
       loadFileSystem(); // Refresh the file system tree
       setMessage(
-        `${kind === "directory" ? "Folder" : "File"} deleted: ${filePath}`
+        `${kind === "directory" ? "Cartella" : "File"} eliminato: ${filePath}`
       );
     } catch (error: any) {
-      console.error(`Error deleting ${kind}:`, error);
-      setMessage(`Error deleting ${kind}: ${error.message}`);
+      console.error(`Errore durante l'eliminazione di ${kind}:`, error);
+      setMessage(`Errore durante l'eliminazione di ${kind}: ${error.message}`);
     }
   };
 
@@ -211,7 +198,7 @@ const OPFSFileSystem: React.FC = () => {
                     color: "red",
                   }}
                 >
-                  Delete
+                  Elimina
                 </button>
               )}
               <ul>{node.children && renderTree(node.children)}</ul>
@@ -223,13 +210,13 @@ const OPFSFileSystem: React.FC = () => {
                 onClick={() => handleFileSelect(node.name)}
                 style={{ marginLeft: "10px", cursor: "pointer" }}
               >
-                Open
+                Apri
               </button>
               <button
                 onClick={() => handleDelete(node.name, "file")}
                 style={{ marginLeft: "10px", cursor: "pointer", color: "red" }}
               >
-                Delete
+                Elimina
               </button>
             </>
           )}
@@ -244,26 +231,32 @@ const OPFSFileSystem: React.FC = () => {
       {/* Buttons for creating folders and files */}
       <button
         onClick={() =>
-          createNestedFolder(
-            prompt("Enter folder path (e.g., folder1/folder2):") || ""
-          )
+          setModalOpen({
+            action: "createFolder",
+            title: "Crea una nuova cartella",
+            placeholder:
+              "Inserisci il percorso della cartella (es. folder1/folder2):",
+          })
         }
         style={{ marginRight: "10px", padding: "10px 20px" }}
       >
-        Create Nested Folder
+        Crea Cartella
       </button>
       <button
         onClick={() =>
-          createFileInFolder(
-            prompt("Enter file path (e.g., folder1/file.txt):") || ""
-          )
+          setModalOpen({
+            action: "createFile",
+            title: "Crea un nuovo file",
+            placeholder:
+              "Inserisci il percorso del file (es. folder1/file.txt):",
+          })
         }
         style={{ marginRight: "10px", padding: "10px 20px" }}
       >
-        Create File in Folder
+        Crea File
       </button>
       <button onClick={loadFileSystem} style={{ padding: "10px 20px" }}>
-        Refresh
+        Aggiorna
       </button>
 
       {message && (
@@ -284,7 +277,7 @@ const OPFSFileSystem: React.FC = () => {
             paddingTop: "20px",
           }}
         >
-          <h2>Edit File: {selectedFile.name}</h2>
+          <h2>Modifica file: {selectedFile.name}</h2>
           <textarea
             value={fileContent}
             onChange={(e) => setFileContent(e.target.value)}
@@ -309,9 +302,18 @@ const OPFSFileSystem: React.FC = () => {
               cursor: "pointer",
             }}
           >
-            Save
+            Salva
           </button>
         </div>
+      )}
+
+      {modalOpen && (
+        <Modal
+          title={modalOpen.title}
+          placeholder={modalOpen.placeholder}
+          onConfirm={handleModalAction}
+          onCancel={() => setModalOpen(null)}
+        />
       )}
     </div>
   );
