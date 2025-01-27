@@ -5,7 +5,6 @@ type FileSystemNode = {
   name: string;
   kind: "file" | "directory" | "bucket";
   children?: FileSystemNode[]; // Only for directories or buckets
-  location: "bucket" | "root"; // Specifies whether the node belongs to a bucket or the root
 };
 
 type BucketOptions = {
@@ -30,8 +29,7 @@ const OPFSFileSystem: React.FC = () => {
 
   const fetchDirectoryContents = async (
     directoryHandle: FileSystemDirectoryHandle,
-    parentPath: string = "",
-    location: "bucket" | "root"
+    parentPath: string = ""
   ): Promise<FileSystemNode[]> => {
     const nodes: FileSystemNode[] = [];
     for await (const [name, handle] of directoryHandle.entries()) {
@@ -40,15 +38,13 @@ const OPFSFileSystem: React.FC = () => {
         nodes.push({
           name: fullPath,
           kind: "directory",
-          location,
           children: await fetchDirectoryContents(
             handle as FileSystemDirectoryHandle,
-            fullPath,
-            location
+            fullPath
           ),
         });
       } else {
-        nodes.push({ name: fullPath, kind: "file", location });
+        nodes.push({ name: fullPath, kind: "file" });
       }
     }
     return nodes;
@@ -60,7 +56,7 @@ const OPFSFileSystem: React.FC = () => {
     try {
       const bucketHandle = await navigator.storageBuckets.open(bucketName);
       const directoryHandle = await bucketHandle.getDirectory();
-      return await fetchDirectoryContents(directoryHandle, "", "bucket");
+      return await fetchDirectoryContents(directoryHandle, bucketName);
     } catch (error: any) {
       console.error(
         `Errore durante il caricamento del bucket ${bucketName}:`,
@@ -73,24 +69,19 @@ const OPFSFileSystem: React.FC = () => {
   const loadFileSystem = async () => {
     try {
       const rootHandle = await navigator.storage.getDirectory();
-      const rootContent = await fetchDirectoryContents(rootHandle, "", "root");
+      const rootContent = await fetchDirectoryContents(rootHandle, "root");
       const existingBuckets = await navigator.storageBuckets.keys();
 
       const bucketContents = await Promise.all(
         existingBuckets.map(async (bucket) => {
           const children = await fetchBucketContents(bucket);
-          return { name: bucket, kind: "bucket", location: "bucket", children };
+          return { name: bucket, kind: "bucket", children };
         })
       );
 
       setBuckets(existingBuckets);
       setFileSystem([
-        {
-          name: "Root",
-          kind: "directory",
-          location: "root",
-          children: rootContent,
-        },
+        { name: "root", kind: "directory", children: rootContent },
         ...bucketContents,
       ]);
       setMessage("File system caricato con successo!");
@@ -125,8 +116,7 @@ const OPFSFileSystem: React.FC = () => {
 
   const deleteEntry = async (
     fullPath: string,
-    kind: "file" | "directory" | "bucket",
-    location: "bucket" | "root"
+    kind: "file" | "directory" | "bucket"
   ) => {
     try {
       let rootHandle;
@@ -138,16 +128,18 @@ const OPFSFileSystem: React.FC = () => {
         setMessage(`Bucket eliminato: ${fullPath}`);
       } else {
         // Eliminazione di file o directory
-        if (location === "bucket") {
+        const pathParts = fullPath.split("/");
+        const bucketOrRoot = pathParts.shift()!;
+
+        if (bucketOrRoot === "root") {
+          rootHandle = await navigator.storage.getDirectory();
+        } else {
           const bucketHandle = await navigator.storageBuckets.open(
-            fullPath.split("/")[0]
+            bucketOrRoot
           );
           rootHandle = await bucketHandle.getDirectory();
-        } else {
-          rootHandle = await navigator.storage.getDirectory();
         }
 
-        const pathParts = fullPath.split("/");
         const entryName = pathParts.pop()!;
         let currentHandle = rootHandle;
 
@@ -170,19 +162,19 @@ const OPFSFileSystem: React.FC = () => {
     }
   };
 
-  const openFile = async (filePath: string, location: "bucket" | "root") => {
+  const openFile = async (filePath: string) => {
     try {
+      const pathParts = filePath.split("/");
+      const bucketOrRoot = pathParts.shift()!;
       let rootHandle;
-      if (location === "bucket") {
-        const bucketHandle = await navigator.storageBuckets.open(
-          filePath.split("/")[0]
-        );
-        rootHandle = await bucketHandle.getDirectory();
-      } else {
+
+      if (bucketOrRoot === "root") {
         rootHandle = await navigator.storage.getDirectory();
+      } else {
+        const bucketHandle = await navigator.storageBuckets.open(bucketOrRoot);
+        rootHandle = await bucketHandle.getDirectory();
       }
 
-      const pathParts = filePath.split("/");
       const fileName = pathParts.pop()!;
       let currentHandle = rootHandle;
 
@@ -194,7 +186,7 @@ const OPFSFileSystem: React.FC = () => {
       const file = await fileHandle.getFile();
       const content = await file.text();
 
-      setSelectedFile({ name: filePath, kind: "file", location });
+      setSelectedFile({ name: filePath, kind: "file" });
       setFileContent(content);
       setMessage(`File aperto: ${filePath}`);
     } catch (error: any) {
@@ -203,20 +195,20 @@ const OPFSFileSystem: React.FC = () => {
     }
   };
 
-  const saveFile = async (location: "bucket" | "root") => {
+  const saveFile = async () => {
     if (!selectedFile || selectedFile.kind !== "file") return;
     try {
+      const pathParts = selectedFile.name.split("/");
+      const bucketOrRoot = pathParts.shift()!;
       let rootHandle;
-      if (location === "bucket") {
-        const bucketHandle = await navigator.storageBuckets.open(
-          selectedFile.name.split("/")[0]
-        );
-        rootHandle = await bucketHandle.getDirectory();
-      } else {
+
+      if (bucketOrRoot === "root") {
         rootHandle = await navigator.storage.getDirectory();
+      } else {
+        const bucketHandle = await navigator.storageBuckets.open(bucketOrRoot);
+        rootHandle = await bucketHandle.getDirectory();
       }
 
-      const pathParts = selectedFile.name.split("/");
       const fileName = pathParts.pop()!;
       let currentHandle = rootHandle;
 
@@ -236,22 +228,15 @@ const OPFSFileSystem: React.FC = () => {
     }
   };
 
-  const handleModalAction = async (
-    input: string,
-    location: "bucket" | "root"
-  ) => {
+  const handleModalAction = async (input: string, bucketOrRoot: string) => {
     try {
       let rootHandle;
 
-      if (location === "bucket") {
-        const bucketName = input.split("/")[0];
-        if (!buckets.includes(bucketName)) {
-          throw new Error(`Il bucket "${bucketName}" non esiste.`);
-        }
-        const bucketHandle = await navigator.storageBuckets.open(bucketName);
-        rootHandle = await bucketHandle.getDirectory();
-      } else {
+      if (bucketOrRoot === "root") {
         rootHandle = await navigator.storage.getDirectory();
+      } else {
+        const bucketHandle = await navigator.storageBuckets.open(bucketOrRoot);
+        rootHandle = await bucketHandle.getDirectory();
       }
 
       const pathParts = input.split("/");
@@ -289,23 +274,15 @@ const OPFSFileSystem: React.FC = () => {
           {node.kind === "directory" ? (
             <>
               📁 {displayName}
-              {node.name !== "Root" && (
-                <button
-                  onClick={() =>
-                    deleteEntry(node.name, "directory", node.location)
-                  }
-                >
-                  Elimina
-                </button>
-              )}
+              <button onClick={() => deleteEntry(node.name, "directory")}>
+                Elimina
+              </button>
               <ul>{node.children && renderTree(node.children)}</ul>
             </>
           ) : node.kind === "bucket" ? (
             <>
               🗑️ {displayName}
-              <button
-                onClick={() => deleteEntry(node.name, "bucket", "bucket")}
-              >
+              <button onClick={() => deleteEntry(node.name, "bucket")}>
                 Elimina
               </button>
               <ul>{node.children && renderTree(node.children)}</ul>
@@ -313,12 +290,8 @@ const OPFSFileSystem: React.FC = () => {
           ) : (
             <>
               📄 {displayName}
-              <button onClick={() => openFile(node.name, node.location)}>
-                Apri
-              </button>
-              <button
-                onClick={() => deleteEntry(node.name, "file", node.location)}
-              >
+              <button onClick={() => openFile(node.name)}>Apri</button>
+              <button onClick={() => deleteEntry(node.name, "file")}>
                 Elimina
               </button>
             </>
@@ -337,12 +310,12 @@ const OPFSFileSystem: React.FC = () => {
             {
               name: "Bucket",
               type: "text",
-              placeholder: "Nome del bucket (opzionale)",
+              placeholder: "Inserisci il nome del bucket (opzionale)",
             },
             {
               name: "Percorso",
               type: "text",
-              placeholder: "Inserisci il percorso",
+              placeholder: "Inserisci il percorso (es. folder o folder/file)",
             },
           ]);
           setModalOpen({
@@ -360,12 +333,12 @@ const OPFSFileSystem: React.FC = () => {
             {
               name: "Bucket",
               type: "text",
-              placeholder: "Nome del bucket (opzionale)",
+              placeholder: "Inserisci il nome del bucket (opzionale)",
             },
             {
               name: "Percorso",
               type: "text",
-              placeholder: "Inserisci il percorso",
+              placeholder: "Inserisci il percorso (es. folder/file)",
             },
           ]);
           setModalOpen({ action: "createFile", title: "Crea un nuovo file" });
@@ -433,7 +406,7 @@ const OPFSFileSystem: React.FC = () => {
             }}
           />
           <button
-            onClick={() => saveFile(selectedFile.location)}
+            onClick={saveFile}
             style={{
               padding: "10px 20px",
               backgroundColor: "#4caf50",
@@ -473,10 +446,7 @@ const OPFSFileSystem: React.FC = () => {
           placeholder=""
           fields={modalFields}
           onConfirm={(values) =>
-            handleModalAction(
-              values.Percorso,
-              values.Bucket ? "bucket" : "root"
-            )
+            handleModalAction(values.Percorso, values.Bucket || "root")
           }
           onCancel={() => setModalOpen(null)}
         />
