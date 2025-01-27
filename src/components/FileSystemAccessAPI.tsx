@@ -20,7 +20,6 @@ const FileSystemAccessAPI: React.FC = () => {
     title: string;
     placeholder: string;
   } | null>(null);
-  const [modalInput, setModalInput] = useState<string>("");
 
   const DB_NAME = "fileSystemDB";
   const STORE_NAME = "handles";
@@ -273,22 +272,60 @@ const FileSystemAccessAPI: React.FC = () => {
       >
         Crea File
       </button>
-      {selectedFile && (
-        <div>
+
+      {message && (
+        <p style={{ marginTop: "10px", color: "#4caf50" }}>{message}</p>
+      )}
+
+      <ul style={{ listStyleType: "none", marginTop: "20px" }}>
+        {renderTree(fileSystem)}
+      </ul>
+
+      {selectedFile && selectedFile.kind === "file" && (
+        <div
+          style={{
+            marginTop: "20px",
+            borderTop: "1px solid #ddd",
+            paddingTop: "20px",
+          }}
+        >
           <h2>Modifica file: {selectedFile.name}</h2>
           <textarea
             value={fileContent}
             onChange={(e) => setFileContent(e.target.value)}
-            style={{ width: "100%", height: "200px" }}
+            style={{
+              width: "100%",
+              height: "200px",
+              marginBottom: "10px",
+              padding: "10px",
+              fontFamily: "monospace",
+              fontSize: "14px",
+              backgroundColor: "#1a1a1a",
+              color: "#fff",
+              border: "1px solid #646cff",
+              borderRadius: "4px",
+            }}
           />
-          <button onClick={saveFile}>Salva File</button>
+          <button
+            onClick={saveFile}
+            style={{
+              padding: "10px 20px",
+              backgroundColor: "#4caf50",
+              color: "white",
+              border: "none",
+              borderRadius: "5px",
+              cursor: "pointer",
+            }}
+          >
+            Salva
+          </button>
         </div>
       )}
-      {message && <p>{message}</p>}
-      <ul>{renderTree(fileSystem)}</ul>
+
       {modalOpen && (
         <Modal
           title={modalOpen.title}
+          placeholder={modalOpen.placeholder}
           fields={[
             {
               name: "Percorso", // Nome del campo
